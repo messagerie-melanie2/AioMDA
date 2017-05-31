@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 '''
-Ce fichier est développé pour réalisé un MDA (Mail Delivery Agent)
+Ce fichier est développé pour réaliser un MDA (Mail Delivery Agent)
 réalisant diverses fonctions annexes
 
 AioMda Copyright © 2017  PNE Annuaire et Messagerie/MEDDE
@@ -59,6 +59,15 @@ class MdaInfosSourcesGeneric(MdaModule):
     ########################################
     def AUTOREPLY_search_rules(self, rcptto):
         pass
+        
+    ########################################
+    def AUTOREPLY_RAIN_apply_rule(self, mail):
+        pass
+    
+    ########################################
+    def AUTOREPLY_RAEX_apply_rule(self, mail):
+        pass
+
 
 ################################################################################
 # Only for testing purpose for CHKRCPTTO_find_local_user

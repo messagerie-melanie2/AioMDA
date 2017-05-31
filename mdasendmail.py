@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 '''
-Ce fichier est développé pour réalisé un MDA (Mail Delivery Agent)
+Ce fichier est développé pour réaliser un MDA (Mail Delivery Agent)
 réalisant diverses fonctions annexes
 
 AioMda Copyright © 2017  PNE Annuaire et Messagerie/MEDDE
@@ -39,17 +39,30 @@ class MdaSendMail(MdaModule):
         except:
             print('{} - {}'.format(self.module_name, sys.exc_info()[0])) # TODO
             raise
-        
+
+    ########################################
+    def send_mimetext_email(self, mailfrom, rcpttos, mimetext_msg):
+        try:
+            cs = smtplib.SMTP(host=self.smtphost, port=self.smtpport)
+            ret = cs.send_message(mimetext_msg, from_addr=mailfrom, to_addrs=rcpttos)
+            self.log.debug('Message result: {}'.format(ret))
+            # TODO traiter ret
+            cs.quit()
+        except:
+            self.log.error('{} - Error during sending email {}'.format(self.module_name, sys.exc_info()[0]))
+            raise # TODO
+
     ########################################    
-    def send_mimetext_email(self, mailfrom, rcpttos, subject, message, From=None, Tos=None):
+    def send_simple_email(self, mailfrom, rcpttos, subject, message, From=None, Tos=None):
         try:
             msg = MIMEText(message, 'utf-8')
             msg['Subject'] = subject
             # TODO Si From ou Tos = None + option conf => search ldap
             msg['From'] = From if From else mailfrom
             msg['To'] = ', '.join(Tos) if Tos else ', '.join(rcpttos)
-            cs = smtplib.SMTP(host=self.smtphost, port=self.smtpport)
-            cs.send_message(msg, from_addr=mailfrom, to_addrs=rcpttos)
-            cs.quit()
+            self.send_mimetext_email(mailfrom, rcpttos, msg)
         except:
             self.log.error('{} - Error during sending email {}'.format(self.module_name, sys.exc_info()[0]))
+            raise
+    
+

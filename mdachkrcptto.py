@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 '''
-Ce fichier est développé pour réalisé un MDA (Mail Delivery Agent)
+Ce fichier est développé pour réaliser un MDA (Mail Delivery Agent)
 réalisant diverses fonctions annexes
 
 AioMda Copyright © 2017  PNE Annuaire et Messagerie/MEDDE
@@ -31,7 +31,7 @@ class MdaChkRcptto(MdaModule):
     def __init__(self, module_name, options, confparser):
         try:
             super().__init__(module_name, options, confparser)
-            if not self.options.check_required_modules(['INFOSSOURCES'], formodule=module_name):
+            if not self.options.check_required_modules(['INFOSSOURCES'], formodule=module_name): # TODO ajout la liste des INFOSOURCES possible
                 raise MdaError(MdaErrorCode()['MDA_ERR_NOTLOADED'], 'Some required modules are not loaded')
             self.options.get_module('INFOSSOURCES').CHKRCPTTO_init_confs()
         except:

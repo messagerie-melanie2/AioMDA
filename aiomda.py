@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 '''
-Ce fichier est développé pour réalisé un MDA (Mail Delivery Agent)
+Ce fichier est développé pour réaliser un MDA (Mail Delivery Agent)
 réalisant diverses fonctions annexes
 
 AioMda Copyright © 2017  PNE Annuaire et Messagerie/MEDDE
@@ -25,8 +25,10 @@ import configparser
 import sys
 import re
 import socket
+import smtplib
 import logging
 from logging.handlers import SysLogHandler
+from logging import FileHandler
 from email.parser import BytesParser
 import asyncio
 # aiosmtpd
@@ -62,8 +64,11 @@ class AioMdaServer(LMTPServer):
                 localuser = self.options.get_module('CHKRCPTTO').run(rcptto)
                 if localuser:
                     self.log.info('AioMdaServer.smtp_RCPT: {} -> {}'.format(arg, localuser))
-                    if self.options.is_module_active('NOTIFYZP'):
-                        self.options.get_module('NOTIFYZP').run(localuser)
+                    try:
+                        if self.options.is_module_active('NOTIFYZP'):
+                            self.options.get_module('NOTIFYZP').run(localuser)
+                    except:
+                        self.log.error('{}'.format(self.module_name, sys.exc_info()[0])) # TODO
                     yield from super().smtp_RCPT('TO:<{}>'.format(localuser))
                 else:
                     self.log.warning('AioMdaServer.smtp_RCPT: No such user {}'.format(arg))
@@ -135,6 +140,36 @@ class AioMdaProxy(Proxy):
         self.options = options
         super().__init__(remote_hostname, remote_port)
 
+    ########################################
+    '''
+    Surcharge de la fonction _deliver de Proxy pour faire du LMTP
+    '''
+    def _deliver(self, mail_from, rcpt_tos, data):
+        refused = {}
+        try:
+            s = smtplib.LMTP()
+            if self._port:
+                s.connect(self._hostname, self._port)
+            else:
+                s.connect(self._hostname)
+            try:
+                refused = s.sendmail(mail_from, rcpt_tos, data)
+            finally:
+                s.quit()
+        except smtplib.SMTPRecipientsRefused as e:
+            self.log.info('got SMTPRecipientsRefused')
+            refused = e.recipients
+        except (OSError, smtplib.SMTPException) as e:
+            self.log.error('got', e.__class__)
+            # All recipients were refused.  If the exception had an associated
+            # error code, use it.  Otherwise, fake it with a non-triggering
+            # exception code.
+            errcode = getattr(e, 'smtp_code', -1)
+            errmsg = getattr(e, 'smtp_error', 'ignore')
+            for r in rcpt_tos:
+                refused[r] = (errcode, errmsg)
+        return refused
+
 #    ########################################
 #    @asyncio.coroutine
 #    def handle_MAIL(self, server, session, envelope, address, mail_options):
@@ -148,18 +183,28 @@ class AioMdaProxy(Proxy):
 #        print('handle_RCPT:\naddress: {}\nenvelope.mail_from: {}\nenvelope.content: {}'.format(address,  envelope.mail_from, envelope.content))
 #        envelope.rcpt_tos = ['titi',  'tutu']
 #        return '250 OK'
-#    
-#    ########################################
-#    @asyncio.coroutine
-#    def handle_DATA(self, server,  session, envelope):
-#        return '250 OK'
+#
+
+    ########################################
+    @asyncio.coroutine
+    def handle_DATA(self, server, session, envelope):
+        if self.options.is_module_active('AUTOREPLY'): # En prévision d'autres modules ayant besoin des headers
+            headers = BytesParser().parsebytes(envelope.content)
+        
+        try:
+            if self.options.is_module_active('AUTOREPLY'):
+                self.options.get_module('AUTOREPLY').run(envelope, headers)
+        except:
+            self.log.error('{}'.format(self.module_name, sys.exc_info()[0])) # TODO
+        return super().handle_DATA(server, session, envelope)
+        # TODO problèmes erreur destinataires par le serveurs distant
 
 ################################################################################
 class AioMda(object):
     ########################################
     def __init__(self, configfile):
         try:
-            self.options = MdaOptions(['INFOSSOURCES', 'CHKRCPTTO', 'SENDMAIL', 'NOTIFYZP'])
+            self.options = MdaOptions(['INFOSSOURCES', 'CHKRCPTTO', 'SENDMAIL', 'NOTIFYZP', 'AUTOREPLY'])
             self.confparser = configparser.ConfigParser(interpolation=None)
             self.confparser.read(configfile)
             # DEFAULT
@@ -170,10 +215,17 @@ class AioMda(object):
             modlist = self.confparser.get('DEFAULT', 'modules', fallback='').upper().rstrip(',').split(',')
             self.options.check_modules_list(modlist)
             
-            # TODO configparser pour log
             self.log = logging.getLogger('AioMda')
             self.log.setLevel(logging.DEBUG if self.options['debug'] else logging.INFO)
-            handler = SysLogHandler(address='/dev/log', facility=SysLogHandler.LOG_MAIL)
+            # TODO configparser pour log
+            logtype = self.confparser.get('DEFAULT', 'log_type', fallback='syslog').lower() # syslog, file
+            if logtype == 'syslog':
+                handler = SysLogHandler(address='/dev/log', facility=SysLogHandler.LOG_MAIL)
+            elif logtype == 'file':
+                logfile = self.confparser.get('DEFAULT', 'log_file', fallback='aiomda.log')
+                handler = FileHandler(logfile)
+            else:
+                raise MdaError(MdaErrorCode()['MDA_ERR_CONFIGURED'], 'Wrong log_type')
             formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s') # TODO
             handler.setFormatter(formatter)
             self.log.addHandler(handler)
@@ -183,7 +235,10 @@ class AioMda(object):
             self.listen_port = self.confparser.getint('INPUT', 'listen_port', fallback=100025)
             # OUTPUT
             self.dest_host = self.confparser.get('OUTPUT', 'dest_host', fallback='localhost')
-            self.dest_port = self.confparser.getint('OUTPUT', 'dest_port', fallback=100026)
+            if self.dest_host[0] == '/':
+                self.dest_port = None
+            else:
+                self.dest_port = self.confparser.getint('OUTPUT', 'dest_port', fallback=100026)
             # Modules obligatoires
             self.options.set_module('INFOSSOURCES', MdaInfosSources('INFOSSOURCES', self.options, self.confparser))
             self.options.set_module('CHKRCPTTO', MdaChkRcptto('CHKRCPTTO', self.options, self.confparser))
@@ -192,6 +247,8 @@ class AioMda(object):
                 self.options.set_module('SENDMAIL', MdaSendMail('SENDMAIL',self.options, self.confparser))
             if 'NOTIFYZP' in modlist:
                 self.options.set_module('NOTIFYZP', MdaNotifyZp('NOTIFYZP',self.options, self.confparser))
+            if 'AUTOREPLY' in modlist:
+                self.options.set_module('AUTOREPLY', MdaAutoReply('AUTOREPLY',self.options, self.confparser))
             # Autres modules : TODO
 
             # Instention du Controlleur 

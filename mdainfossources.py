@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 '''
-Ce fichier est développé pour réalisé un MDA (Mail Delivery Agent)
+Ce fichier est développé pour réaliser un MDA (Mail Delivery Agent)
 réalisant diverses fonctions annexes
 
 AioMda Copyright © 2017  PNE Annuaire et Messagerie/MEDDE
@@ -78,12 +78,27 @@ class MdaInfosSources(MdaModule):
             self.sources_dict[x].AUTOREPLY_init_conf()
             
     ########################################
-    def AUTOREPLY_search_rules_in_sources(self, rcptto):
+    def AUTOREPLY_search_user_info_in_sources(self, rcptto):
+        rules = None
+        user_mail_from = None
         for x in self.actives_sources:
-            rules = self.sources_dict[x].AUTOREPLY_search_rules(rcptto)
+            rules, user_mail_from = self.sources_dict[x].AUTOREPLY_search_user_info(rcptto)
             if rules:
-                return rules
-        return None
+                break
+        return (rules, user_mail_from)
 
+    ########################################
+    def AUTOREPLY_RAIN_apply_rule_in_sources(self, mail):
+        for x in self.actives_sources:
+            ret = self.sources_dict[x].AUTOREPLY_RAIN_apply_rule(mail)
+            if ret:
+                return ret
+    
+    ########################################
+    def AUTOREPLY_RAEX_apply_rule_in_sources(self, mail):
+        for x in self.actives_sources:
+            ret = self.sources_dict[x].AUTOREPLY_RAEX_apply_rule(mail)
+            if ret:
+                return ret
     
     

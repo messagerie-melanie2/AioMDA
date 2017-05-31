@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 '''
-Ce fichier est développé pour réalisé un MDA (Mail Delivery Agent)
+Ce fichier est développé pour réaliser un MDA (Mail Delivery Agent)
 réalisant diverses fonctions annexes
 
 AioMda Copyright © 2017  PNE Annuaire et Messagerie/MEDDE
@@ -85,6 +85,14 @@ class MdaLdapRequestParams(object):
 
 ################################################################################    
 class MdaInfosSourcesLDAP(MdaInfosSourcesGeneric):
+    '''
+    generic keywords fot attrs :
+    uid : user id to give to lmtpd
+    host : on what host the box in located
+    mail : e-mail addresses
+    mailfrom : e-mail addresses to use to send a mail
+    autoreply : list of autoreply rules
+    '''
     ########################################
     def __init__(self, module_name, options, confparser):
         super().__init__(module_name, options, confparser)
@@ -171,7 +179,25 @@ class MdaInfosSourcesLDAP(MdaInfosSourcesGeneric):
         except:
             self.log.error('{} - {}'.format(self.module_name, sys.exc_info()[0]))
             raise
-    
+
+    ########################################
+    def ldap_search(self, filter, filtersub, base, scope, deref, attrs, time_limit, size_limit):
+        try:
+            if filtersub:
+                filter = self.filter_substitution(filter, filtersub)
+            conn = self.ldap_connect_and_bind()
+            self.log.debug('{} - ldapsearch base={}, filter={}, scope={}, deref={}, attrs={}, time_limit={}, size_limit={}'.format(self.module_name, base, filter, scope, deref, attrs, time_limit, size_limit))
+            conn.search( \
+                search_base=base, \
+                search_filter=filter, \
+                search_scope=scope, \
+                dereference_aliases=deref, \
+                attributes=attrs) # TODO time_limit / size_limit
+            return conn
+        except:
+            self.log.error('{} - {}'.format(self.module_name, sys.exc_info()[0]))
+            raise
+
     ########################################
     def CHKRCPTTO_init_conf(self):
         try:
@@ -198,14 +224,14 @@ class MdaInfosSourcesLDAP(MdaInfosSourcesGeneric):
     def CHKRCPTTO_find_local_user(self, rcptto):
         localuser = None
         try:
-            conn = self.ldap_connect_and_bind()
-            filter = self.filter_substitution(self.requests_by_modules['CHKRCPTTO'].filter, {'mail':rcptto})
-            conn.search( \
-                search_base=self.requests_by_modules['CHKRCPTTO'].base, \
-                search_filter=filter, \
-                search_scope=self.requests_by_modules['CHKRCPTTO'].scope, \
-                dereference_aliases=self.requests_by_modules['CHKRCPTTO'].deref, \
-                attributes=self.requests_by_modules['CHKRCPTTO'].attrs_mapped)
+            conn = self.ldap_search(self.requests_by_modules['CHKRCPTTO'].filter, \
+                {'mail':rcptto}, \
+                self.requests_by_modules['CHKRCPTTO'].base, \
+                self.requests_by_modules['CHKRCPTTO'].scope, \
+                self.requests_by_modules['CHKRCPTTO'].deref, \
+                self.requests_by_modules['CHKRCPTTO'].attrs_mapped, \
+                self.requests_by_modules['CHKRCPTTO'].time_limit, \
+                self.requests_by_modules['CHKRCPTTO'].size_limit)
             len_response = len(conn.response)
             if len_response == 1:
                 if self.requests_by_modules['CHKRCPTTO']['CHKRCPTTO_check_infos']:
@@ -228,30 +254,35 @@ class MdaInfosSourcesLDAP(MdaInfosSourcesGeneric):
     ########################################
     def AUTOREPLY_init_conf(self, filter_fallback='(uid=%u)'):
         try:
-            self.module_init_conf('AUTOREPLY')
+            self.module_init_conf('AUTOREPLY', filter_fallback=filter_fallback)
+            self.module_init_conf('AUTOREPLY_RAIN', filter_fallback=filter_fallback)
+            self.module_init_conf('AUTOREPLY_RAEX', filter_fallback=filter_fallback)
         except:
             self.log.error('{} - {}'.format(self.module_name, sys.exc_info()[0]))
             raise
     
     ########################################
-    def AUTOREPLY_search_rules(self, rcptto):
+    def AUTOREPLY_search_user_info(self, rcptto):
         '''
         note : à ce momment là rcptto doit avoir la valeur de uid
         '''
         rules = None
+        user_mail_from = None
         try:
-            conn = self.ldap_connect_and_bind()
-            filter = self.filter_substitution(self.requests_by_modules['AUTOREPLY'].filter, {'uid':rcptto})
-            conn.search( \
-                search_base=self.requests_by_modules['AUTOREPLY'].base, \
-                search_filter=filter, \
-                search_scope=self.requests_by_modules['AUTOREPLY'].scope, \
-                dereference_aliases=self.requests_by_modules['AUTOREPLY'].deref, \
-                attributes=self.requests_by_modules['AUTOREPLY'].attrs_mapped)
+            conn = self.ldap_search(self.requests_by_modules['AUTOREPLY'].filter, \
+                {'uid':rcptto}, \
+                self.requests_by_modules['AUTOREPLY'].base, \
+                self.requests_by_modules['AUTOREPLY'].scope, \
+                self.requests_by_modules['AUTOREPLY'].deref, \
+                self.requests_by_modules['AUTOREPLY'].attrs_mapped, \
+                self.requests_by_modules['AUTOREPLY'].time_limit, \
+                self.requests_by_modules['AUTOREPLY'].size_limit)
             len_response = len(conn.response)
             if len_response == 1:
                 if self.attrs_map['autoreply'] in conn.response[0]['attributes']:
                     rules = conn.response[0]['attributes'][self.attrs_map['autoreply']]
+                if self.attrs_map['mailfrom'] in conn.response[0]['attributes']:
+                    user_mail_from = conn.response[0]['attributes'][self.attrs_map['mailfrom']][0]
             elif len_response > 1:
                 self.log.error('{} - ldap request give more than one response for mail {}'.format(self.module_name, rcptto))
                 raise MdaError(450, 'Configuration error') # TODO
@@ -259,5 +290,46 @@ class MdaInfosSourcesLDAP(MdaInfosSourcesGeneric):
         except:
             self.log.error('{} - {}'.format(self.module_name, sys.exc_info()[0]))
             raise
-        return rules
-        
+        return (rules, user_mail_from)
+
+    ########################################
+    def AUTOREPLY_RAIN_apply_rule(self, mail):
+        try:
+            conn = self.ldap_search(self.requests_by_modules['AUTOREPLY_RAIN'].filter, \
+                {'mail':mail}, \
+                self.requests_by_modules['AUTOREPLY_RAIN'].base, \
+                self.requests_by_modules['AUTOREPLY_RAIN'].scope, \
+                self.requests_by_modules['AUTOREPLY_RAIN'].deref, \
+                self.requests_by_modules['AUTOREPLY_RAIN'].attrs_mapped, \
+                self.requests_by_modules['AUTOREPLY_RAIN'].time_limit, \
+                self.requests_by_modules['AUTOREPLY_RAIN'].size_limit)
+            len_response = len(conn.response)
+            conn.unbind()
+            if len_response == 0:
+                return False
+            else:
+                return True
+        except:
+            self.log.error('{} - {}'.format(self.module_name, sys.exc_info()[0]))
+            raise
+    
+    ########################################
+    def AUTOREPLY_RAEX_apply_rule(self, mail):
+        try:
+            conn = self.ldap_search(self.requests_by_modules['AUTOREPLY_RAEX'].filter, \
+                {'mail':mail}, \
+                self.requests_by_modules['AUTOREPLY_RAEX'].base, \
+                self.requests_by_modules['AUTOREPLY_RAEX'].scope, \
+                self.requests_by_modules['AUTOREPLY_RAEX'].deref, \
+                self.requests_by_modules['AUTOREPLY_RAEX'].attrs_mapped, \
+                self.requests_by_modules['AUTOREPLY_RAEX'].time_limit, \
+                self.requests_by_modules['AUTOREPLY_RAEX'].size_limit)
+            len_response = len(conn.response)
+            conn.unbind()
+            if len_response == 0:
+                return True
+            else:
+                return False
+        except:
+            self.log.error('{} - {}'.format(self.module_name, sys.exc_info()[0]))
+            raise

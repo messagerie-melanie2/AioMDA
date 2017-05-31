@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 '''
-Ce fichier est développé pour réalisé un MDA (Mail Delivery Agent)
+Ce fichier est développé pour réaliser un MDA (Mail Delivery Agent)
 réalisant diverses fonctions annexes
 
 AioMda Copyright © 2017  PNE Annuaire et Messagerie/MEDDE
@@ -148,7 +148,7 @@ class MdaModule(object):
             os.makedirs(path, omod)
             if owner:
                 ugid = owner.split(':')
-                shutil.chown(path, user=ugid[0],  group=ugid[0] if len(ugid) == 2 else None )
+                shutil.chown(path, user=ugid[0], group=ugid[1] if len(ugid) == 2 else None )
         except:
             self.log.error('{} - erreur during create_dir {} : {}'.format(self.module_name, path, sys.exc_info()[0]))
             raise
@@ -163,3 +163,40 @@ class MdaModule(object):
         else:
             if create_dir:
                 self.create_dir(path, mod=mod, owner=owner)
+
+    ########################################
+    def touch_file(self, file, path=None, mod=None, owner=None):
+        try:
+            if not path:
+                p = os.path.dirname(file)
+                f = os.path.basename(file)
+                fp = file
+            else:
+                p = path
+                f = file
+                fp = '{}/{}'.format(p, f)
+            if os.path.exists(fp):
+                os.utime(fp)
+            else:
+                os.mknod(fp)
+                if mod:
+                    os.chmod(fp, int(mod, 8))
+                if owner:
+                    ugid = owner.split(':')
+                    shutil.chown(fp, user=ugid[0], group=ugid[1] if len(ugid) == 2 else None)
+        except OSError as e:
+            self.log.error('{} - cannot create file {} : {}'.format(self.module_name, fp, e))
+            raise
+        except:
+            self.log.error('{} - erreur during create_dir {} : {}'.format(self.module_name, path, sys.exc_info()[0]))
+            raise
+            
+
+    ########################################
+    def check_header(self, value, headers, envelope):
+        if value in headers:
+            return True
+        else:
+            errmsg = 'message from {} to {} has no {}'.format(envelope.mail_from, ','.join(envelope.rcpt_tos), value)
+            self.log.error('{} - {}'.format(self.module_name, errmsg))
+            raise MdaError(MdaErrorCode()['MDA_ERR_SENDMAIL'], 'AutoReply cannot be sent : {}'.format(errmsg))

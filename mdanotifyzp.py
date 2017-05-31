@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 '''
-Ce fichier est développé pour réalisé un MDA (Mail Delivery Agent)
+Ce fichier est développé pour réaliser un MDA (Mail Delivery Agent)
 réalisant diverses fonctions annexes
 
 AioMda Copyright © 2017  PNE Annuaire et Messagerie/MEDDE
@@ -42,7 +42,7 @@ class MdaNotifyZp(MdaModule):
             raise
 
     ########################################
-    def run(self,  rcptto):
+    def run(self, rcptto):
         try:
             filename = '{}/{}'.format(self.notify_path, rcptto)
             if not os.path.exists(filename):
