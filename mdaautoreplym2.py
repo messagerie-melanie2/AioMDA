@@ -31,9 +31,9 @@ class MdaAutoReply(MdaAutoReply):
     ########################################
     def init_rules_rule_types(self):
         super().init_rules_rule_types()
-        self. rule_types['AMED'] = self.play_rule_AMED
-        self. rule_types['MELA'] = self.play_rule_MELA
-        self. rule_types['AMEX'] = self.play_rule_AMEX
+        self.rule_types['AMED'] = self.play_rule_AMED
+        self.rule_types['MELA'] = self.play_rule_MELA
+        self.rule_types['AMEX'] = self.play_rule_AMEX
     
     ########################################
     def play_rule_AMED(self, user_mail_from, rcptto, envelope, headers):

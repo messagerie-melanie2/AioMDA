@@ -282,7 +282,10 @@ class MdaInfosSourcesLDAP(MdaInfosSourcesGeneric):
                 if self.attrs_map['autoreply'] in conn.response[0]['attributes']:
                     rules = conn.response[0]['attributes'][self.attrs_map['autoreply']]
                 if self.attrs_map['mailfrom'] in conn.response[0]['attributes']:
-                    user_mail_from = conn.response[0]['attributes'][self.attrs_map['mailfrom']][0]
+                    if isinstance(conn.response[0]['attributes'][self.attrs_map['mailfrom']], list):
+                        user_mail_from = conn.response[0]['attributes'][self.attrs_map['mailfrom']][0]
+                    else:
+                        user_mail_from = conn.response[0]['attributes'][self.attrs_map['mailfrom']]
             elif len_response > 1:
                 self.log.error('{} - ldap request give more than one response for mail {}'.format(self.module_name, rcptto))
                 raise MdaError(450, 'Configuration error') # TODO

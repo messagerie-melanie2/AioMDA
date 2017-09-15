@@ -71,7 +71,7 @@ class MdaAutoReply(MdaModule):
             
             # Exceptions
             self.exceptions = {}
-            mfe = self.confparser.get(self.module_name, 'mailfrom_exceptions', fallback='mailer-daemon@*,nobody@*,*-owner@*,www-data@*,robot-*@*,@*').rstrip(',').split(',')
+            mfe = self.confparser.get(self.module_name, 'mailfrom_exceptions', fallback='mailer-daemon@*,nobody@*,*-owner@*,www-data@*,robot-*@*,^@*').rstrip(',').split(',')
             self.exceptions['mailfrom_exceptions'] = [ re.sub('\*', '.*?', x) for x in mfe ] 
             self.exceptions['no_reply_to_autoreply'] = self.confparser.getboolean(self.module_name, 'no_reply_to_autoreply', fallback=True)
             self.exceptions['no_reply_to_robot'] = self.confparser.getboolean(self.module_name, 'no_reply_to_robot', fallback=True)
@@ -179,7 +179,7 @@ class MdaAutoReply(MdaModule):
             now = time.time()
             if os.path.exists(delay_file):
                 mtime = os.path.getmtime(delay_file)
-                if mtime+delay*60 < now:
+                if mtime+delay*60 > now:
                     return False
             return True
         except:
