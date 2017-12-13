@@ -28,7 +28,7 @@ from mdamodules import MdaError
 from mdamodules import MdaErrorCode
 from mdainfossourcesgeneric import MdaInfosSourcesGeneric
 
-################################################################################    
+################################################################################
 class MdaLdapRequestParams(object):
     ########################################
     def __init__(self, filter, base, scope='sub', deref='never', attrs=[ldap3.ALL_ATTRIBUTES], attrs_mapped=[ldap3.ALL_ATTRIBUTES], size_limit=0, time_limit=0, module_options=None):
@@ -41,20 +41,20 @@ class MdaLdapRequestParams(object):
         self.size_limit = size_limit
         self.time_limit = time_limit
         self.module_options = module_options
-        
+
     ########################################
     def __getitem__(self, key):
         if key in self.module_options:
             return self.module_options[key]
         else:
             return None
-            
+
     ########################################
     def __setitem__(self, key, value):
         if not self.module_options:
             self.module_options = {}
         self.module_options[key] = value
-        
+
     ########################################
     def get_ldap3_scope(self,  configscope):
         confscope = configscope.lower()
@@ -83,7 +83,7 @@ class MdaLdapRequestParams(object):
             deref = ldap3.DEREF_NEVER
         return deref
 
-################################################################################    
+################################################################################
 class MdaInfosSourcesLDAP(MdaInfosSourcesGeneric):
     '''
     generic keywords fot attrs :
@@ -100,13 +100,13 @@ class MdaInfosSourcesLDAP(MdaInfosSourcesGeneric):
             self.attrs_by_substitute = {'%m':'mail', '%u':'uid'}
             # LDAP Uri
             self.uri = self.confparser.get(self.module_name, 'uri')
-            self.uri_components = ldapuri.parse_uri(self.uri) 
-            
+            self.uri_components = ldapuri.parse_uri(self.uri)
+
             # TODO gérer un pool de connexion ?
-            
+
             # TODO connexion authentifié
-            self.requests_by_modules = {}            
-            
+            self.requests_by_modules = {}
+
             # attrs mapping
             self.attrs_list = self.confparser.get(self.module_name, 'attrs_list',  fallback='uid mail host autoreply').rstrip(' ').split(' ')
             self.attrs_map = {}
@@ -126,7 +126,7 @@ class MdaInfosSourcesLDAP(MdaInfosSourcesGeneric):
                 must_raise = True
                 msg = '{} is not the list of attrs:{}'.format(x, all_attrs)
                 self.log.error(msg)
-        if must_raise:        
+        if must_raise:
             raise MdaError(MdaErrorCode()['MDA_ERR_CONFIGURED'], msg)
 
     ########################################
@@ -166,7 +166,7 @@ class MdaInfosSourcesLDAP(MdaInfosSourcesGeneric):
             deref = self.confparser.get(self.module_name, '{}_deref'.format(module_name),  fallback='never')
             time_limit = self.confparser.getint(self.module_name, '{}_time_limit'.format(module_name), fallback=10)
             size_limit = self.confparser.getint(self.module_name, '{}_size_limit'.format(module_name), fallback=10)
-            
+
             self.requests_by_modules[module_name] = MdaLdapRequestParams( \
                 filter, \
                 base, \
@@ -212,10 +212,16 @@ class MdaInfosSourcesLDAP(MdaInfosSourcesGeneric):
     def CHKRCPTTO_checking_infos(self, rcptto, ldap_entry):
         try:
             f = self.options['fqdn'] if self.requests_by_modules['CHKRCPTTO']['CHKRCPTTO_case_sensitive_check'] else self.options['fqdn'].lower()
-            for x in ldap_entry['attributes'][self.attrs_map['host']]:
-                    h = x if self.requests_by_modules['CHKRCPTTO']['CHKRCPTTO_case_sensitive_check'] else x.lower()
-                    if h == f:
-                        return True
+            if isinstance(ldap_entry['attributes'][self.attrs_map['host']],str):
+                x = ldap_entry['attributes'][self.attrs_map['host']]
+                h = x if self.requests_by_modules['CHKRCPTTO']['CHKRCPTTO_case_sensitive_check'] else x.lower()
+                if h == f:
+                    return True
+            else:
+                for x in ldap_entry['attributes'][self.attrs_map['host']]:
+                        h = x if self.requests_by_modules['CHKRCPTTO']['CHKRCPTTO_case_sensitive_check'] else x.lower()
+                        if h == f:
+                            return True
         except:
             self.log.error('{} - {}'.format(self.module_name, sys.exc_info()[0]))
         return False
@@ -260,7 +266,7 @@ class MdaInfosSourcesLDAP(MdaInfosSourcesGeneric):
         except:
             self.log.error('{} - {}'.format(self.module_name, sys.exc_info()[0]))
             raise
-    
+
     ########################################
     def AUTOREPLY_search_user_info(self, rcptto):
         '''
@@ -315,7 +321,7 @@ class MdaInfosSourcesLDAP(MdaInfosSourcesGeneric):
         except:
             self.log.error('{} - {}'.format(self.module_name, sys.exc_info()[0]))
             raise
-    
+
     ########################################
     def AUTOREPLY_RAEX_apply_rule(self, mail):
         try:
