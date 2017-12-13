@@ -45,6 +45,10 @@ from mdasendmail import MdaSendMail
 from mdanotifyzp import MdaNotifyZp
 from mdaautoreply import MdaAutoReply
 
+EMPTYBYTES = b''
+CRLF = b'\r\n'
+NLCRE = re.compile(br'\r\n|\r|\n')
+
 ################################################################################
 class AioMdaServer(LMTPServer):
     ########################################
@@ -56,7 +60,10 @@ class AioMdaServer(LMTPServer):
 
     ########################################
     # TODO le programme raise si le serveur lmtp final n'est pas démarré
+    @asyncio.coroutine
     def smtp_RCPT(self, arg):
+        self.log.info('AioMdaServer.smtp_RCPT: DEBUT')
+        self.log.info('AioMdaServer.smtp_RCPT: arg = {}'.format(arg))
         dest = self.re_rcptto.match(arg)
         if dest:
             rcptto = dest.group(1)
@@ -68,7 +75,8 @@ class AioMdaServer(LMTPServer):
                         if self.options.is_module_active('NOTIFYZP'):
                             self.options.get_module('NOTIFYZP').run(localuser)
                     except:
-                        self.log.error('{}'.format(self.module_name, sys.exc_info()[0])) # TODO
+                        self.log.error('{} : {}'.format(self.module_name, sys.exc_info()[0])) # TODO
+                    self.log.info('AioMdaServer.smtp_RCPT: FIN')
                     yield from super().smtp_RCPT('TO:<{}>'.format(localuser))
                 else:
                     self.log.warning('AioMdaServer.smtp_RCPT: No such user {}'.format(arg))
@@ -126,11 +134,11 @@ class AioMdaController(Controller):
             self.log = logging.getLogger('AioMda')
             self.options = options
             super().__init__(handler, loop=loop, hostname=hostname, port=port, ready_timeout=ready_timeout, enable_SMTPUTF8=enable_SMTPUTF8)
-    
+
     ########################################
     def factory(self):
         return AioMdaServer(self.handler,  self.options)
-        
+
 
 ################################################################################
 class AioMdaProxy(Proxy):
@@ -152,15 +160,11 @@ class AioMdaProxy(Proxy):
                 s.connect(self._hostname, self._port)
             else:
                 s.connect(self._hostname)
-            try:
-                refused = s.sendmail(mail_from, rcpt_tos, data)
-            finally:
-                s.quit()
-        except smtplib.SMTPRecipientsRefused as e:
-            self.log.info('got SMTPRecipientsRefused')
-            refused = e.recipients
+        #except smtplib.SMTPRecipientsRefused as e:
+        #    self.log.info('got SMTPRecipientsRefused')
+        #    refused = e.recipients
         except (OSError, smtplib.SMTPException) as e:
-            self.log.error('got', e.__class__)
+            self.log.error('got : {} | {}'.format(e.__class__,e))
             # All recipients were refused.  If the exception had an associated
             # error code, use it.  Otherwise, fake it with a non-triggering
             # exception code.
@@ -168,6 +172,21 @@ class AioMdaProxy(Proxy):
             errmsg = getattr(e, 'smtp_error', 'ignore')
             for r in rcpt_tos:
                 refused[r] = (errcode, errmsg)
+            return refused
+
+        try:
+            self.log.info('AioMdaProxy sendmail : mail_from={},rcptos={}'.format(mail_from,rcpt_tos))
+            refused = s.sendmail(mail_from, rcpt_tos, data)
+            self.log.error('Mail delivre')
+            for r in rcpt_tos:
+                if r not in refused:
+                    refused[r] = '250 OK'
+        #except: TODO
+        except smtplib.SMTPRecipientsRefused as e:
+            self.log.info('got SMTPRecipientsRefused')
+            refused = e.recipients
+        finally:
+            s.quit()
         return refused
 
 #    ########################################
@@ -190,13 +209,43 @@ class AioMdaProxy(Proxy):
     def handle_DATA(self, server, session, envelope):
         if self.options.is_module_active('AUTOREPLY'): # En prévision d'autres modules ayant besoin des headers
             headers = BytesParser().parsebytes(envelope.content)
-        
+
         try:
             if self.options.is_module_active('AUTOREPLY'):
                 self.options.get_module('AUTOREPLY').run(envelope, headers)
         except:
-            self.log.error('{}'.format(self.module_name, sys.exc_info()[0])) # TODO
-        return super().handle_DATA(server, session, envelope)
+            self.log.error('{}'.format( sys.exc_info()[0])) # TODO
+
+        if isinstance(envelope.content, str):
+            content = envelope.original_content
+        else:
+            content = envelope.content
+        lines = content.splitlines(keepends=True)
+        # Look for the last header
+        i = 0
+        ending = CRLF
+        for line in lines:                          # pragma: nobranch
+            if NLCRE.match(line):
+                ending = line
+                break
+            i += 1
+        peer = session.peer[0].encode('ascii')
+        # lines.insert(i, b'X-Peer: %s%s' % (peer, ending))
+        lines.insert(i, b'X-Peer: ' + peer + ending)
+        data = EMPTYBYTES.join(lines)
+        refused = self._deliver(envelope.mail_from, envelope.rcpt_tos, data)
+        # TBD: what to do with refused addresses?
+        self.log.info('we got some refusals: %s', refused)
+        code_retour=''
+        for r in envelope.rcpt_tos:
+            res = refused[r.split('@')[0]]
+            if isinstance(res,str):
+                code_retour = '{}{}{}'.format(code_retour,'\n',res)
+            else:
+                code_retour = '{}{}{} {}'.format(code_retour,'\n',res[0],res[1])
+
+        return code_retour
+        #return super().handle_DATA(server, session, envelope)
         # TODO problèmes erreur destinataires par le serveurs distant
 
 ################################################################################
@@ -214,7 +263,7 @@ class AioMda(object):
                 self.options['fqdn'] = socket.getfqdn()
             modlist = self.confparser.get('DEFAULT', 'modules', fallback='').upper().rstrip(',').split(',')
             self.options.check_modules_list(modlist)
-            
+
             self.log = logging.getLogger('AioMda')
             self.log.setLevel(logging.DEBUG if self.options['debug'] else logging.INFO)
             # TODO configparser pour log
@@ -229,7 +278,7 @@ class AioMda(object):
             formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s') # TODO
             handler.setFormatter(formatter)
             self.log.addHandler(handler)
-            
+
             # INPUT
             self.listen_host = self.confparser.get('INPUT', 'listen_host', fallback='localhost')
             self.listen_port = self.confparser.getint('INPUT', 'listen_port', fallback=100025)
@@ -251,8 +300,9 @@ class AioMda(object):
                 self.options.set_module('AUTOREPLY', MdaAutoReply('AUTOREPLY',self.options, self.confparser))
             # Autres modules : TODO
 
-            # Instention du Controlleur 
+            # Instention du Controlleur
             self.controller = AioMdaController(AioMdaProxy(self.options, self.dest_host, self.dest_port), self.options,  hostname=self.listen_host, port=self.listen_port)
+#            self.controller = Controller(AioMdaProxy(self.options, self.dest_host, self.dest_port),  hostname=self.listen_host, port=self.listen_port)
         except:
             print('{}'.format(sys.exc_info()[0])) # TODO
             if self.options and self.options['debug']:
@@ -264,12 +314,12 @@ class AioMda(object):
     def __del__(self):
         if 'controller' in self.__dict__ and self.controller:
             self.controller.stop()
-    
+
     ########################################
     # en Python 3.5 : async def proxy_lmtp(self, loop):
-    # en Python 3.4 : 
+    # en Python 3.4 :
     @asyncio.coroutine
-    def proxy_lmtp(self, loop):
+    def proxy_lmtp(self,loop): #,loop
         #self.controller = AioMdaController(Proxy(self.dest_host, self.dest_port), hostname=self.listen_host, port=self.listen_port)
         self.controller.start()
 
@@ -277,10 +327,12 @@ class AioMda(object):
     def run(self):
         self.log.debug('{}:{} to {}:{}'.format(self.listen_host, self.listen_port, self.dest_host, self.dest_port))
         try:
-            #logging.basicConfig(level=logging.DEBUG)
+            logging.basicConfig(level=logging.DEBUG)
             loop = asyncio.get_event_loop()
             loop.create_task(self.proxy_lmtp(loop))
             loop.run_forever()
+            while True:
+                time.sleep(1)
         except:
             self.log.error('{}'.format(sys.exc_info()[0])) # TODO
             sys.exit(MdaErrorCode()['MDA_ERR_ASYNCIO'])
