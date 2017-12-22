@@ -1,36 +1,37 @@
 #! /usr/bin/env python3
 # -*- coding: utf-8 -*-
-'''
+        '''
 Ce fichier est développé pour réaliser un MDA (Mail Delivery Agent)
-réalisant diverses fonctions annexes
+        réalisant diverses fonctions annexes
 
-AioMda Copyright © 2017  PNE Annuaire et Messagerie/MEDDE
+        AioMda Copyright © 2017  PNE Annuaire et Messagerie/MEDDE
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+        This program is free software: you can redistribute it and/or modify
+        it under the terms of the GNU General Public License as published by
+        the Free Software Foundation, either version 3 of the License, or
+        (at your option) any later version.
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+        This program is distributed in the hope that it will be useful,
+        but WITHOUT ANY WARRANTY; without even the implied warranty of
+        MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+        GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-'''
+        You should have received a copy of the GNU General Public License
+        along with this program.  If not, see <http://www.gnu.org/licenses/>.
+        '''
 
-import sys
-import re
-import time
-import os
+        import sys
+        import re
+        import time
+        import os
+import traceback
 from email.mime.text import MIMEText
 from email.header import decode_header
 from email.header import make_header
 from mdamodules import MdaModule
 from mdamodules import MdaErrorCode
 from mdamodules import MdaError
-  
+
 
 ################################################################################
 class MdaAutoReply(MdaModule):
@@ -53,10 +54,10 @@ class MdaAutoReply(MdaModule):
             if add_headers_list:
                 for x in add_headers_list.rstrip(',').split(','):
                     self.add_headers[x] = self.confparser.get(self.module_name, x)
-            
+
             self.autoreply_mailfrom = self.confparser.get(self.module_name, 'mailfrom', fallback='<>')
             #self.autoreply_from = self.confparser.get(self.module_name, 'from', fallback=None) # TODO LDAP / INFOSSOURCES ?
-            
+
             # delais
             self.default_delay = self.confparser.getint(self.module_name, 'default_delay', fallback=720) # un autoreply toutes les "delay" minutes
             self.delay_path = self.confparser.get(self.module_name, 'delay_path', fallback='/var/cache/autoreply/')
@@ -68,38 +69,29 @@ class MdaAutoReply(MdaModule):
             self.init_dir(self.delay_path, mod=delay_path_mod, owner=delay_path_owner, create_dir=create_dir)
             self.delay_file_format = self.confparser.get(self.module_name, 'delay_file_format', fallback='AutoReply..%u..%mf.txt') # %u = uid, %mf = mailfrom
             # TODO nettoyage des fichiers automatique ? Quand ?
-            
+
             # Exceptions
             self.exceptions = {}
             mfe = self.confparser.get(self.module_name, 'mailfrom_exceptions', fallback='mailer-daemon@*,nobody@*,*-owner@*,www-data@*,robot-*@*,^@*').rstrip(',').split(',')
-            self.exceptions['mailfrom_exceptions'] = [ re.sub('\*', '.*?', x) for x in mfe ] 
+            self.exceptions['mailfrom_exceptions'] = [ re.sub('\*', '.*?', x) for x in mfe ]
             self.exceptions['no_reply_to_autoreply'] = self.confparser.getboolean(self.module_name, 'no_reply_to_autoreply', fallback=True)
             self.exceptions['no_reply_to_robot'] = self.confparser.getboolean(self.module_name, 'no_reply_to_robot', fallback=True)
             self.exceptions['no_reply_to_spam'] = self.confparser.getboolean(self.module_name, 'no_reply_to_spam', fallback=True)
             self.exceptions['no_reply_precedence'] = self.confparser.get(self.module_name, 'no_reply_precedence', fallback='bulk,list,junk').rstrip(',').split(',')
             nrh = self.confparser.get(self.module_name, 'no_reply_headers', fallback='list-*,X-list-*').rstrip(',').split(',')
-            self.exceptions['no_reply_headers'] = [ re.sub('\*', '.*?', x) for x in nrh ] 
+            self.exceptions['no_reply_headers'] = [ re.sub('\*', '.*?', x) for x in nrh ]
             nrsh = self.confparser.get(self.module_name, 'no_reply_spam_headers',fallback='X-Spam-Flag:yes').rstrip(',').split(',')
             self.exceptions['no_reply_spam_headers'] = []
             for x in nrsh:
                 self.exceptions['no_reply_spam_headers'].append(x.split(':'))
-            
+
             # Lecture configuration des sources
             self.options.get_module('INFOSSOURCES').AUTOREPLY_init_confs()
-            
+
             self.init_rules_rule_types()
-            self.re_rules = re.compile(r'^(\d+)~ ((%s):(.*?))(( DDEB:(\d{8}))?( DFIN:(\d{8}))?( DSVT:(\d?))?)?( FREQ:(\d*))?( TEXTE:(.*?)?)$'%('|'.join([x for x in self.rule_types])), re.DOTALL)
-            # TODO texte directement dans l'entrée... 
-            # TODO DFIN:0/20170523 : désactive la date de fin ?!
-            self.regrp = {
-                'order':0,
-                'type':2,
-                'tparams':3,
-                'ddebval':6,
-                'dfinval':8,
-                'dsvtval':10,
-                'freqval':12,
-                'textval':14 }
+            self.init_rules_re()
+
+
         except:
             print('{} - {}'.format(self.module_name, sys.exc_info()[0])) # TODO
             raise
@@ -108,38 +100,53 @@ class MdaAutoReply(MdaModule):
     def init_rules_rule_types(self):
        self. rule_types = { \
         'LDAP':self.play_rule_LDAP, \
-        'JOKE':self.play_rule_LDAP, \
+        'JOKE':self.play_rule_JOKE, \
         'PCRE':self.play_rule_PCRE, \
         'RAIN':self.play_rule_RAIN, \
-        'RAEX':self.play_rule_RAEX, 
+        'RAEX':self.play_rule_RAEX, \
         'ORIG':self.play_rule_ORIG \
         }
-       
+
+    ########################################
+    def init_rules_re(self):
+        self.re_rules = re.compile(r'^(\d+)~ ((%s):(.*?))(( DDEB:(\d{8}))?( DFIN:(\d{8}))?( DSVT:(\d?))?)?( FREQ:(\d*))?( TEXTE:(.*?)?)$'%('|'.join([x for x in self.rule_types])), re.DOTALL)
+        # TODO texte directement dans l'entrée...
+        # TODO DFIN:0/20170523 : désactive la date de fin ?!
+        self.regrp = {
+            'order':0,
+            'type':2,
+            'tparams':3,
+            'ddebval':6,
+            'dfinval':8,
+            'dsvtval':10,
+            'freqval':12,
+            'textval':14 }
+
     ########################################
     def play_rule_LDAP(self, user_mail_from, rcptto, envelope, headers):
         self.log.warning('{} - LDAP is not impemented yet.'.format(self.module_name)) # TODO
         return False
-    
+
     ########################################
     def play_rule_JOKE(self, user_mail_from, rcptto, envelope, headers):
         self.log.warning('{} - JOKE is not impemented yet.'.format(self.module_name)) # TODO
         return False
-    
+
     ########################################
     def play_rule_PCRE(self, user_mail_from, rcptto, envelope, headers):
         self.log.warning('{} - PCRE is not impemented yet.'.format(self.module_name)) # TODO
         return False
-    
+
     ########################################
     def play_rule_RAIN(self, user_mail_from, rcptto, envelope, headers):
         self.log.debug('{} - playing RAIN rule for sender {}.'.format(self.module_name, envelope.mail_from))
         return self.options.get_module('INFOSSOURCES').AUTOREPLY_RAIN_apply_rule_in_sources(envelope.mail_from)
-    
+
     ########################################
     def play_rule_RAEX(self, user_mail_from, rcptto, envelope, headers):
         self.log.debug('{} - playing RAEX rule for sender {}.'.format(self.module_name, envelope.mail_from))
         return self.options.get_module('INFOSSOURCES').AUTOREPLY_RAEX_apply_rule_in_sources(envelope.mail_from)
-    
+
     ########################################
     def play_rule_ORIG(self, user_mail_from, rcptto, envelope, headers):
         self.log.debug('{} - ORIG is not impemented yet.'.format(self.module_name)) # TODO
@@ -152,7 +159,7 @@ class MdaAutoReply(MdaModule):
     ########################################
     def parse_rules(self, rawrules):
         try:
-            rules = []   
+            rules = []
             for x in rawrules:
                 r = self.re_rules.findall(x)
                 if r:
@@ -191,27 +198,27 @@ class MdaAutoReply(MdaModule):
         try:
             self.log.debug('{} - Sending mail for autoreply for {}'.format(self.module_name, uid))
             msg = MIMEText(rule['textval'], 'utf-8')
-            
+
             # TODO insertion nouvelle ligne entête dans le message ?
-            
+
             # Ajout des headers d'origine # TODO
             if self.use_origin_msg_headers:
                 for x in headers:
                     if x in self.origin_msg_headers:
                         msg[x] = headers[x]
-        
+
             # Ajout des headers nécessaire :
             if self.check_header('Subject', headers, envelope):
                 msg['Subject'] = re.sub('%s', str(make_header(decode_header(headers['Subject']))), self.subject)
             msg['From'] = user_mail_from # TODO ajouter la décoration du cn ?
             if self.check_header('To', headers, envelope):
                 msg['To'] = envelope.mail_from # TODO émetteur interne a décoré ou externe (reprendre le from du message)
-            if self.check_header('Message-ID', headers, envelope):
-                for x in self.add_headers:
-                    msg[x] = re.sub('%mid', headers['Message-ID'], self.add_headers[x])
+            # if self.check_header('Message-ID', headers, envelope):
+            #    for x in self.add_headers:
+            #        msg[x] = re.sub('%mid', headers['Message-ID'], self.add_headers[x])
             self.options.get_module('SENDMAIL').send_mimetext_email(self.autoreply_mailfrom, envelope.mail_from, msg)
         except:
-            print('{} - {}'.format(self.module_name, sys.exc_info()[0])) # TODO
+            print('{} - {}'.format(self.module_name, traceback.format_exception(*sys.exc_info()))) # TODO
             raise
 
     ########################################
@@ -233,7 +240,7 @@ class MdaAutoReply(MdaModule):
                 if 'dsvtval' in rule:
                     self.log.warning('{} - DSVT is not impemented yet.'.format(self.module_name)) # TODO
                 if not self.is_check_freq_ok(self.default_delay if not 'freqval' in rule else rule['freqval'], '{}/{}'.format(self.delay_path, delay_file)):
-                    self.log.info('{} - too close freq for {} : {}'.format(self.module_name, rcptto, rule)) # TODO 
+                    self.log.info('{} - too close freq for {} : {}'.format(self.module_name, rcptto, rule)) # TODO
                     continue
                 if not self.rule_types[rule['type']](user_mail_from, rcptto, envelope, headers):
                     self.log.debug('{} - For user {} the {} rule return False for {} ({})'.format(self.module_name, rcptto, rule['type'], envelope.mail_from, rule))
@@ -242,9 +249,9 @@ class MdaAutoReply(MdaModule):
                 self.touch_file(delay_file, mod=self.delay_file_mod, owner=self.delay_file_owner, path=self.delay_path)
                 break
         except:
-            self.log.error('{} - {}'.format(self.module_name, sys.exc_info()[0])) # TODO
+            self.log.error('{} - {}'.format(self.module_name, traceback.format_exception(*sys.exc_info()))) # TODO
             raise
-    
+
     ########################################
     def check_exception(self, envelope, headers):
         try:
@@ -270,9 +277,9 @@ class MdaAutoReply(MdaModule):
                         return False
             return True
         except:
-            self.log.error('{} - {}'.format(self.module_name, sys.exc_info()[0])) # TODO
+            self.log.error('{} - {}'.format(self.module_name, traceback.format_exception(*sys.exc_info()))) # TODO
             raise
-    
+
     ########################################
     def run(self, envelope, headers):
         try:
@@ -287,5 +294,5 @@ class MdaAutoReply(MdaModule):
                         if not user_mail_from:
                             self.log.error('{} - infossources have no mail emission for user {}'.format(self.module_name, rcptto))
         except:
-            self.log.error('{} - {}'.format(self.module_name, sys.exc_info()[0])) # TODO
+            self.log.error('{} - {}'.format(self.module_name, traceback.format_exception(*sys.exc_info()))) # TODO
             raise
