@@ -84,23 +84,28 @@ class MdaAutoReplyMCE(MdaAutoReply):
             for x in rawrules:
                 r = x.split(';')
                 if r and len(r) == 9:
-                    self.log.debug('{}'.format(r))
-                    rule = {}
-                    rule['order'] = int(r[self.regrp['order']])
-                    rule['version'] = int(r[self.regrp['version']])
-                    rule['type'] = r[self.regrp['type']]
-                    if r[self.regrp['ddebval']] != '': rule['ddebval'] = r[self.regrp['ddebval']]
-                    if r[self.regrp['dfinval']] != '': rule['dfinval'] = r[self.regrp['dfinval']]
-                    if r[self.regrp['freqval']] != '':
-                        res = re.findall(r'^([dhms])([1-9][0-9]*)$',r[self.regrp['freqval']])
-                        if res:
-                            rule['freqval'] = mul[res[0][0]]*res[0][1]
-                    if r[self.regrp['subject']] != '': self.subject = r[self.regrp['subject']]
-                    if r[self.regrp['textval']] != '': rule['textval'] = r[self.regrp['textval']]
-                    # TODO insérer trier dans rules.... bisect.insort_left ?
-                    simple = Recurrence(r[self.regrp['repetitivite']])
-                    if simple.isMaintenant():
-                        rules.append(rule)
+                    try:
+                        self.log.debug('{}'.format(r))
+                        rule = {}
+                        rule['order'] = int(r[self.regrp['order']])
+                        rule['version'] = int(r[self.regrp['version']])
+                        rule['type'] = r[self.regrp['type']]
+                        if r[self.regrp['ddebval']] != '': rule['ddebval'] = r[self.regrp['ddebval']]
+                        if r[self.regrp['dfinval']] != '': rule['dfinval'] = r[self.regrp['dfinval']]
+                        if r[self.regrp['freqval']] != '':
+                            res = re.findall(r'^([dhms])([1-9][0-9]*)$',r[self.regrp['freqval']])
+                            if res:
+                                rule['freqval'] = mul[res[0][0]]*res[0][1]
+                        if r[self.regrp['subject']] != '': self.subject = r[self.regrp['subject']]
+                        if r[self.regrp['textval']] != '': rule['textval'] = r[self.regrp['textval']]
+                        # TODO insérer trier dans rules.... bisect.insort_left ?
+                        simple = Recurrence(r[self.regrp['repetitivite']])
+                        if simple.isMaintenant():
+                            rules.append(rule)
+                    except Exception:
+                        self.log.error('Mauvais format pour la règle : {}'.format(r))
+                else:
+                    self.log.error('Mauvais format pour la règle : {}'.format(r))
             rules.sort(key=self.sort_rules_key)
             return rules
         except:
