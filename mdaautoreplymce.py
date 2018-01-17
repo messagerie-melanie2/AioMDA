@@ -29,6 +29,7 @@ from email.mime.text import MIMEText
 from email.header import decode_header
 from email.header import make_header
 from mdaautoreply import MdaAutoReply
+from Recurrence import Recurrence
 
 ################################################################################
 class MdaAutoReplyMCE(MdaAutoReply):
@@ -79,22 +80,27 @@ class MdaAutoReplyMCE(MdaAutoReply):
     def parse_rules(self, rawrules):
         try:
             rules = []
+            mul = {"d":86400,"h":3600,"m":60,"s":1}
             for x in rawrules:
-                r = x.split(';', 8)
-                if r:
+                r = x.split(';')
+                if r and len(r) == 9:
                     self.log.debug('{}'.format(r))
                     rule = {}
                     rule['order'] = int(r[self.regrp['order']])
-                    rule['version'] = r[self.regrp['version']]
+                    rule['version'] = int(r[self.regrp['version']])
                     rule['type'] = r[self.regrp['type']]
                     if r[self.regrp['ddebval']] != '': rule['ddebval'] = r[self.regrp['ddebval']]
                     if r[self.regrp['dfinval']] != '': rule['dfinval'] = r[self.regrp['dfinval']]
-                    if r[self.regrp['repetitivite']] != '': rule['repetitivite'] = r[self.regrp['repetitivite']]
-                    if r[self.regrp['freqval']] != '': rule['freqval'] = r[self.regrp['freqval']]
+                    if r[self.regrp['freqval']] != '':
+                        res = re.findall(r'^([dhms])([1-9][0-9]*)$',r[self.regrp['freqval']])
+                        if res:
+                            rule['freqval'] = mul[res[0][0]]*res[0][1]
                     if r[self.regrp['subject']] != '': self.subject = r[self.regrp['subject']]
                     if r[self.regrp['textval']] != '': rule['textval'] = r[self.regrp['textval']]
                     # TODO insérer trier dans rules.... bisect.insort_left ?
-                    rules.append(rule)
+                    simple = Recurrence(r[self.regrp['repetitivite']])
+                    if simple.isMaintenant():
+                        rules.append(rule)
             rules.sort(key=self.sort_rules_key)
             return rules
         except:
@@ -146,7 +152,7 @@ class MdaAutoReplyMCE(MdaAutoReply):
                     continue
                 if not 'dfinval' in rule or rule['dfinval'] < today:
                     continue
-                if not self.is_check_freq_ok(self.default_delay, '{}/{}'.format(self.delay_path, delay_file)):
+                if not self.is_check_freq_ok(self.default_delay if not 'freqval' in rule else rule['freqval'], '{}/{}'.format(self.delay_path, delay_file)):
                     self.log.info('{} - too close freq for {} : {}'.format(self.module_name, rcptto, rule)) # TODO
                     continue
                 if not self.rule_types[rule['type']](user_mail_from, rcptto, envelope, headers):
